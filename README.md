@@ -1,4 +1,4 @@
-# Calculator Android App
+# Calculator Android App 
 
 A simple calculator app built with **Kotlin** and **Jetpack Compose**.
 
