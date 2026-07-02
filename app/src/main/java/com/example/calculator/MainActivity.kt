@@ -6,24 +6,23 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.ui.Alignment
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -31,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -40,6 +40,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.calculator.ui.theme.CalculatorTheme
+
+private val OPERATORS = setOf("+", "x", "÷", "-")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,12 +61,14 @@ class MainActivity : ComponentActivity() {
 
 val inputs = mutableStateListOf<String>()
 
+/**
+ * Appends a digit, operator, or decimal point to the current input token list,
+ * enforcing basic rules (no leading operator, no duplicate decimals, etc.).
+ */
 fun addInput(input: String) {
-    // protect against empty list on first press
-    val ops = setOf("+", "x", "÷", "-")
     if (inputs.isEmpty()) {
-        if (input in ops) {
-            // Prevent starting with an operator: prefix with 0 then operator
+        if (input in OPERATORS) {
+            // Prevent starting with an operator: prefix with 0 then operator.
             inputs.add("0")
             inputs.add(input)
         } else {
@@ -75,9 +79,9 @@ fun addInput(input: String) {
 
     when (input) {
         "+", "x", "÷", "-" -> {
-            // if last token is an operator, replace it with the new one
+            // If the last token is already an operator, replace it with the new one.
             val last = inputs[inputs.lastIndex]
-            if (last in ops) {
+            if (last in OPERATORS) {
                 inputs[inputs.lastIndex] = input
             } else {
                 inputs.add(input)
@@ -85,18 +89,18 @@ fun addInput(input: String) {
         }
         else -> {
             when (val last = inputs[inputs.lastIndex]) {
-                in ops -> {
-                    // if user presses '.', start a new decimal number 0.
-                    if (input == ".") inputs.add("0.") else inputs.add(input)
+                in OPERATORS -> {
+                    // Start a new number; "0." if the user pressed '.' first.
+                    inputs.add(if (input == ".") "0." else input)
                 }
                 "0" -> {
-                    // replace leading zero unless adding decimal
+                    // Replace a leading zero unless the user is adding a decimal.
                     inputs[inputs.lastIndex] = if (input == ".") "0." else input
                 }
                 else -> {
-                    // prevent multiple decimals in same number
+                    // Prevent multiple decimal points in the same number.
                     if (input == "." && last.contains('.')) {
-                        // ignore
+                        // Ignore duplicate decimal point.
                     } else {
                         inputs[inputs.lastIndex] = last + input
                     }
@@ -106,18 +110,36 @@ fun addInput(input: String) {
     }
 }
 
-fun parserInput(inputList: SnapshotStateList<String>) : Double {
+/**
+ * Removes the last character from the current input.
+ * Drops the entire last token if it is a single character (a digit or operator),
+ * otherwise trims the last character off a multi-digit number.
+ */
+fun removeLastInput() {
+    if (inputs.isEmpty()) return
+
+    val last = inputs[inputs.lastIndex]
+    if (last.length <= 1) {
+        inputs.removeAt(inputs.lastIndex)
+    } else {
+        inputs[inputs.lastIndex] = last.dropLast(1)
+    }
+}
+
+/**
+ * Evaluates the token list, resolving multiplication/division before
+ * addition/subtraction (standard operator precedence).
+ */
+fun parserInput(inputList: SnapshotStateList<String>): Double {
     val items = inputList.toMutableList()
     if (items.isEmpty()) return 0.0
 
-    val ops = setOf("÷", "x", "+", "-")
-    if (items.lastOrNull() in ops) {
+    if (items.lastOrNull() in OPERATORS) {
         items.removeAt(items.lastIndex)
     }
-
     if (items.isEmpty()) return 0.0
 
-    // first resolve multiplication and division using Double
+    // Resolve multiplication and division first.
     val collapsed = mutableListOf<String>()
     var i = 0
     while (i < items.size) {
@@ -138,7 +160,7 @@ fun parserInput(inputList: SnapshotStateList<String>) : Double {
         }
     }
 
-    // then resolve addition and subtraction
+    // Then resolve addition and subtraction left-to-right.
     var answer = collapsed[0].toDouble()
     i = 1
     while (i < collapsed.size - 1) {
@@ -161,8 +183,7 @@ fun CalculatorButtons(
     modifier: Modifier = Modifier,
     color: Long = 0xFFFF6200,
     function: () -> Unit = {}
-)
-{
+) {
     Button(
         onClick = function,
         shape = RoundedCornerShape(0.dp),
@@ -170,8 +191,7 @@ fun CalculatorButtons(
             containerColor = Color(color),
             contentColor = Color(0xFFEAEFEF)
         ),
-        modifier = modifier
-            .fillMaxSize()
+        modifier = modifier.fillMaxSize()
     ) {
         Text(
             text = text,
@@ -182,140 +202,145 @@ fun CalculatorButtons(
     }
 }
 
-
 @Composable
 fun Calculator() {
+    var input by rememberSaveable { mutableStateOf("0") } // Current display string.
+    var result by rememberSaveable { mutableDoubleStateOf(0.0) } // Last computed result.
 
-    var input by rememberSaveable { mutableStateOf("0") } // Input string
-    var result by rememberSaveable { mutableDoubleStateOf(0.0) } // Result (Double)
+    fun refreshInput() {
+        input = if (inputs.isEmpty()) "0" else inputs.joinToString(" ")
+    }
 
-
-
-    Column(modifier = Modifier.fillMaxSize())
-    {
+    Column(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
         ) {
             Screen(input)
         }
+
         Spacer(
             modifier = Modifier
                 .weight(0.06f)
                 .fillMaxWidth()
                 .background(Color(0xFF222222))
         )
+
         Column(
             modifier = Modifier
                 .weight(4f)
                 .fillMaxWidth()
         ) {
+            // Row: 7 8 9 | C ⌫ .
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
-            ) // 7 8 9 =
-            {
+            ) {
                 CalculatorButtons(text = "7", modifier = Modifier.weight(1f)) {
                     addInput("7")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "8", modifier = Modifier.weight(1f)) {
                     addInput("8")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "9", modifier = Modifier.weight(1f)) {
                     addInput("9")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    CalculatorButtons(text = "C", modifier = Modifier.weight(2f), color = 0xFF262626) {
+                    CalculatorButtons(text = "C", modifier = Modifier.weight(1f), color = 0xFF262626) {
                         inputs.clear()
                         input = "0"
                         result = 0.0
                     }
+                    CalculatorButtons(text = "⌫", modifier = Modifier.weight(1f), color = 0xFF262626) {
+                        removeLastInput()
+                        refreshInput()
+                    }
                     CalculatorButtons(text = ".", modifier = Modifier.weight(1f), color = 0xFF262626) {
                         addInput(".")
-                        input = inputs.joinToString(" ")
+                        refreshInput()
                     }
                 }
             }
 
+            // Row: 4 5 6 ×
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
-            ) // 4 5 6 x
-            {
+            ) {
                 CalculatorButtons(text = "4", modifier = Modifier.weight(1f)) {
                     addInput("4")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "5", modifier = Modifier.weight(1f)) {
                     addInput("5")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "6", modifier = Modifier.weight(1f)) {
                     addInput("6")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
-                CalculatorButtons(text = "x", modifier = Modifier.weight(1f), color = 0xFF262626) {
+                CalculatorButtons(text = "×", modifier = Modifier.weight(1f), color = 0xFF262626) {
                     addInput("x")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
             }
 
+            // Row: 1 2 3 ÷
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
-            ) // 1 2 3 ÷
-            {
+            ) {
                 CalculatorButtons(text = "1", modifier = Modifier.weight(1f)) {
                     addInput("1")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "2", modifier = Modifier.weight(1f)) {
                     addInput("2")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "3", modifier = Modifier.weight(1f)) {
                     addInput("3")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "÷", modifier = Modifier.weight(1f), color = 0xFF262626) {
                     addInput("÷")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
             }
 
+            // Row: 0 + - =
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
-            ) // 0 + - C
-            {
+            ) {
                 CalculatorButtons(text = "0", modifier = Modifier.weight(1f)) {
                     addInput("0")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "+", modifier = Modifier.weight(1f), color = 0xFF262626) {
                     addInput("+")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "-", modifier = Modifier.weight(1f), color = 0xFF262626) {
                     addInput("-")
-                    input = inputs.joinToString ( " " )
+                    refreshInput()
                 }
                 CalculatorButtons(text = "=", modifier = Modifier.weight(1f), color = 0xFF262626) {
                     try {
-                        result  = parserInput(inputs)
-                        // format display: drop trailing .0 when integer
+                        result = parserInput(inputs)
+                        // Drop trailing ".0" when the result is a whole number.
                         input = if (result % 1.0 == 0.0) result.toLong().toString() else result.toString()
                     } catch (_: IllegalArgumentException) {
                         input = "Zero Division"
@@ -332,9 +357,8 @@ fun Calculator() {
 fun Screen(context: String = "0") {
     val scrollState = rememberScrollState()
 
-    // When text changes, animate scroll to the end so the latest characters are visible
+    // Auto-scroll to the end whenever the text changes so the latest digits stay visible.
     LaunchedEffect(context) {
-        // small delay is not required; animateScrollTo will handle zero-length safely
         scrollState.animateScrollTo(scrollState.maxValue)
     }
 
@@ -354,23 +378,17 @@ fun Screen(context: String = "0") {
                 fontWeight = FontWeight.Bold,
                 fontSize = 48.sp,
                 maxLines = 1,
-                softWrap = false,
+                softWrap = false
             )
         }
     }
 }
 
-fun addition(a: Double, b: Double): Double {
-    return a + b
-}
+fun addition(a: Double, b: Double): Double = a + b
 
-fun subtraction(a: Double, b: Double): Double {
-    return a - b
-}
+fun subtraction(a: Double, b: Double): Double = a - b
 
-fun multiplication(a: Double, b: Double): Double {
-    return a * b
-}
+fun multiplication(a: Double, b: Double): Double = a * b
 
 fun division(a: Double, b: Double): Double {
     if (b == 0.0) {
@@ -378,7 +396,6 @@ fun division(a: Double, b: Double): Double {
     }
     return a / b
 }
-
 
 @Preview(
     showBackground = true,
