@@ -80,6 +80,7 @@ fun addInput(input: String) {
     when (input) {
         "+", "x", "÷", "-" -> {
             // If the last token is already an operator, replace it with the new one.
+            // Otherwise, append the operator to the list.
             val last = inputs[inputs.lastIndex]
             if (last in OPERATORS) {
                 inputs[inputs.lastIndex] = input
